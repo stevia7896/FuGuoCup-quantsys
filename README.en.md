@@ -128,14 +128,16 @@ Initial capital ¥200,000; all figures net of fees. "Not verifiable": the strate
 
 ## Forward paper record
 
-On every A-share trading day at 14:20 the system sends the `sector_rotation` research signal to Telegram, explicitly labelled as research mode and not an approved model. Because the holdout has been viewed, this live record is the genuine forward sample for any future promotion decision.
+The system is designed to send the `sector_rotation` research signal to Telegram at 14:20 on every A-share trading day, explicitly labelled as research mode and not an approved model. Because the holdout has been viewed, this live record is the genuine forward sample for any future promotion decision.
 
-The delivery path is built to production standards: GitHub's native cron was measured hours late, so an external scheduler triggers GitHub Actions (native cron is kept as a backup); the slow collection and evaluation finish before 14:20; report generation and sending are gated to 14:20–14:55; a persisted reservation precedes every send to prevent duplicates; run status is written to logs and the step summary, late or undelivered runs fail and alert, and an independent dead-man check watches for runs that never start. See [scheduling](docs/scheduling.md) and [operations](docs/OPERATIONS.md) (Chinese).
+**Status (as of 2026-11-10): the forward record has not started accumulating.** GitHub's native cron ran 5–10 hours late on this repository, with the delay varying day to day; across the 17 trading days from 10-19 to 11-10, no production signal was delivered inside the 14:20–14:55 window. By design the system refuses to send a stale signal (fail-closed) and only raised "not delivered" alerts. Since 11-11 the cron is fanned out every 20 minutes over the 14 hours before the window, and missed-signal alerts are deduplicated to one per day; the fix has not yet been validated live.
+
+Design choices in the delivery path: the slow collection and evaluation finish before 14:20; report generation and sending are gated to 14:20–14:55 and late runs never send; a persisted reservation precedes every send to prevent duplicates; run status is written to logs and the step summary; an independent dead-man check and an external scheduler trigger are supported (configuration for the latter is provided but not yet deployed). See [scheduling](docs/scheduling.md) and [operations](docs/OPERATIONS.md) (Chinese).
 
 ## Engineering
 
 - `src/fullgoal_quant/` separates data, universe, signals, ledger, portfolio, report and notifications; every research run writes a manifest with config hash, source hash and time windows.
-- 119 regression tests cover timing and look-ahead, fees and settlement, missing data and quality breaks, accounts, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test against live public data.
+- 120 regression tests cover timing and look-ahead, fees and settlement, missing data and quality breaks, accounts, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test against live public data.
 - Public logs and artifacts contain no account report, outbox or tokens.
 
 ```text
