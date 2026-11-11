@@ -1,8 +1,12 @@
 name: Trading day reports
 on:
   schedule:
-    - cron: '50 5 * * 1-5'
-    - cron: '20 6 * * 1-5'
+    # GitHub delivers this repository's schedule events 5-10 hours late, so fan
+    # out every 20 minutes over the 14 hours before the 14:20 (UTC 06:20) slot.
+    # Only an event that actually starts 13:40-14:55 Asia/Shanghai delivers.
+    - cron: '*/20 16-23 * * 0-4'
+    - cron: '*/20 0-5 * * 1-5'
+    - cron: '0,20 6 * * 1-5'
   workflow_dispatch:
     inputs:
       mode:
@@ -24,7 +28,28 @@ concurrency:
   group: fund-report-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  gate:
+    # Cheap clock check: schedule events that start before today's 13:40
+    # Asia/Shanghai launch window are stale and exit without setup or alerts.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.clock.outputs.run }}
+    steps:
+      - id: clock
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          now=$(TZ=Asia/Shanghai date +%H%M)
+          if [ "$EVENT" = schedule ] && [ "$((10#$now))" -lt 1340 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "- 早于今日 13:40 启动窗口（北京时间 $now），跳过过期调度事件" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
   report:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

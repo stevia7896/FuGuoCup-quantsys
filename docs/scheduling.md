@@ -14,11 +14,11 @@
 
 ## 架构
 
-外部定时器在工作日 13:50、14:05（Asia/Shanghai）发起 scheduled dispatch；GitHub 自带 13:50、14:20 cron 作为备用。所有模式保留同一个 concurrency group 串行运行。生产模式忽略 research 输入，由 CLI 按比赛配置决定是否强制研究。
+外部定时器在工作日 13:50、14:05（Asia/Shanghai）发起 scheduled dispatch。GitHub 自带 cron 作为备用：2026-10-22 至 11-10 实测其延迟 5–10 小时且逐日变化，单个时点必然错过窗口，因此改为在 14:20 之前的 14 小时内每 20 分钟扇出一次（UTC 前一日 16:00 至当日 06:20，约 44 个事件/日），任一事件实际落在 13:40–14:55 即可投递。gate 作业先做时钟检查，早于 13:40 的 schedule 事件直接跳过，不安装依赖、不告警、不发心跳。扇出只能提高命中概率，不能保证准时；外部触发器仍是首选。所有模式保留同一个 concurrency group 串行运行。生产模式忽略 research 输入，由 CLI 按比赛配置决定是否强制研究。
 
 外部 workflow_dispatch 绕过了已观测到的 schedule 事件生成瓶颈，但不保证准时送达：GitHub runner 排队或服务故障仍可能发生，因此保留独立 healthchecks 监控。
 
-在外部触发器配置完成前，每个交易日迟到的 GitHub cron 现在都会以 missed_late 明确失败并发送 Telegram 告警（可能两次），不再静默成功；这是预期行为。跨日遗留 cron 若早于今日允许启动时间，则以 skipped_stale_trigger 跳过，不发告警或心跳。
+当日未送达时，第一个迟到事件以 missed_late 明确失败并发送一次 Telegram 告警，同时在去重状态写入 missed_alert；当日其余迟到事件记为 skipped_missed_notified，退出 0，不再重复告警（心跳仍发 `/fail`）。当日已送达则迟到事件一律 skipped_already_sent。跨日遗留 cron 若早于今日允许启动时间，则以 skipped_stale_trigger 跳过，不发告警或心跳。
 
 日历检查 → 当日去重预检 → 启动窗口（13:40–14:55）→ 采集/评估 → 等待 14:20 → 报告 → 预约上传 → Telegram → 完成状态上传。报告生成、预约和发送均受 14:20–14:55 窗口约束；迟到且未发送的任务失败退出。reserved/send_failed 必须人工核对 Telegram，禁止自动重发。
 
@@ -46,6 +46,7 @@ healthchecks.io 新建 Cron 检查：`50 13 * * 1-5`，时区 Asia/Shanghai，Gr
 | skipped_already_sent | 当日已经发送，成功跳过 |
 | skipped_stale_trigger | GitHub cron 早于今日允许启动时点，视为跨日遗留事件；退出 0，不发告警或心跳 |
 | missed_late | 迟到且未发送，退出 3 |
+| skipped_missed_notified | 迟到且未发送，但今日漏发已告警过；退出 0，不重复告警，心跳发 `/fail` |
 | failed_too_early | scheduled dispatch 早于允许启动时点，退出 2；检查外部调度配置 |
 | blocked_unresolved | 预约或失败状态未核清，退出 2；人工查 Telegram |
 | reserved | 已预约，须先持久化再发送 |
