@@ -156,7 +156,7 @@ Fees are research assumptions, not verified per-fund rates; competition mode req
 | `risk_budget` | −10.60% | 1/8 | +0.15% | +0.30% | 10.44% | 0.08 | 5.42 | 3,513 |
 | `ensemble` | not verifiable | — | −0.03% | −0.06% | 21.58% | 0.12 | 7.90 | 5,332 |
 
-Initial capital ¥200,000; all figures net of fees. "Not verifiable": the strategy held a fund across an unexplained NAV break on 2022-04-06, so its development backtest is invalid and no spliced return is substituted.
+Initial capital ¥200,000, net of fees. "Not verifiable": a position spans an unexplained NAV break on 2022-04-06, which invalidates that backtest segment.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/holdout-dark.png">
@@ -165,15 +165,15 @@ Initial capital ¥200,000; all figures net of fees. "Not verifiable": the strate
 
 **Findings**
 
-1. **No robust out-of-sample edge.** Only `dual_momentum` is positive in both the rolling period and the holdout (+1.00% / +0.20%), economically indistinguishable from zero. `timing` (+21.79% / −7.90%), `risk_budget` (−10.60% / +0.15%) and `sector_rotation` (−4.38% / +1.23%) flip sign between the two, i.e. performance is regime-dependent.
-2. **The holdout is dominated by one episode.** All three momentum strategies peaked on 2026-06-25 (`sector_rotation` +26.2%, `dual_momentum` +32.3%, `timing` +14.9%) and gave nearly all of it back when the market turned risk_off in July; exposure then shifted largely to cash, with `timing` 100% cash from September. Near-zero holdout returns hide 20%–24% drawdowns, and 126 days are too short to separate the signal from a single market episode.
-3. **Costs are binding.** Momentum strategies turn over 7.9–11.2× in the holdout, with fees of 2.7%–3.5% of initial capital — the same order as returns. That is with weekly rebalancing; the live signal updates daily, which would cost more and has not been backtested.
-4. **The formal gate cannot be computed — by design.** The `equal_weight` benchmark itself crosses a NAV break, so the per-fold excess test is undefined and the system refuses to promote any strategy rather than manufacturing a result from spliced returns.
-5. **Results are sensitive to universe composition.** An earlier version with a different universe and code ([`sample_results/review/`](sample_results/review/)) had `sector_rotation` at −2.47% rolling and +1.20% holdout; numbers drift as the universe changes, which is why every result here is pinned to hashes.
+1. **No robust out-of-sample edge.** Only `dual_momentum` is positive in both the rolling period and the holdout (+1.00% / +0.20%). `timing` (+21.79% / −7.90%), `risk_budget` (−10.60% / +0.15%) and `sector_rotation` (−4.38% / +1.23%) change sign between the two.
+2. **One episode dominates the holdout.** All three momentum strategies peak on 2026-06-25 (`sector_rotation` +26.2%, `dual_momentum` +32.3%, `timing` +14.9%) and give almost all of it back after the July switch to risk_off, with drawdowns of 20%–24%.
+3. **Costs are the same size as returns.** Momentum-type strategies turn over 7.9–11.2× in the holdout and pay fees of 2.7%–3.5% of initial capital.
+4. **The deployment gate cannot be computed.** The `equal_weight` benchmark spans a NAV break, so the per-fold excess test is undefined and no strategy is promoted.
+5. **Results drift with the universe.** With an earlier universe ([`sample_results/review/`](sample_results/review/)), `sector_rotation` came out at −2.47% / +1.20%.
 
 ### Statistical inference
 
-Beyond point estimates, how much confidence do these numbers deserve? The table below is computed on the frozen holdout daily returns without re-running any backtest, so it cannot change which model is retained ([`robustness.md`](sample_results/2026-10-16/robustness.md), fixed seed, reproducible with `python scripts/robustness.py`).
+Computed on the frozen holdout daily returns with a fixed seed ([`robustness.md`](sample_results/2026-10-16/robustness.md)).
 
 | Strategy | Sharpe | Sharpe 95% CI | Annualised excess | Excess 95% CI | PSR | DSR |
 |---|---:|---:|---:|---:|---:|---:|
@@ -186,35 +186,31 @@ Beyond point estimates, how much confidence do these numbers deserve? The table 
 | `risk_budget` | 0.08 | [−2.77, 2.90] | +15.9% | [−17.3%, +49.5%] | 0.52 | 0.34 |
 | `ensemble` | 0.12 | [−2.70, 3.04] | +17.9% | [−41.1%, +70.1%] | 0.53 | 0.35 |
 
-- **Intervals**: stationary bootstrap (Politis–Romano), 10,000 resamples, mean block length of 10 sessions to preserve serial dependence; excess is measured against `equal_weight`, with strategy and benchmark resampled using the same indices (paired) so their correlation is kept.
+<details>
+<summary><b>Method</b></summary>
+
+- **Intervals**: stationary bootstrap (Politis–Romano), 10,000 resamples, mean block length of 10 sessions; block lengths of 5, 10 and 20 give the same conclusion. Excess is against `equal_weight`, with strategy and benchmark resampled on the same indices (paired).
 - **PSR**: probability that the true Sharpe exceeds 0, adjusted for sample length, skewness and kurtosis (Bailey & López de Prado, 2012).
-- **DSR**: raises the hurdle from 0 to the expected maximum Sharpe among 8 unskilled strategies (0.67) to correct for multiple comparisons (Bailey & López de Prado, 2014). The 8 strategies' daily returns are highly correlated, giving only 2.0 effective trials by mean pairwise correlation; using 8 is the conservative choice.
+- **DSR**: the hurdle is the expected maximum Sharpe among 8 unskilled strategies (0.67), correcting for multiple comparisons (Bailey & López de Prado, 2014). Mean pairwise correlation of daily returns gives 2.0 effective trials.
 
-**Reading**
+</details>
 
-1. **Every Sharpe interval straddles zero by a wide margin.** With 126 sessions the 95% interval is roughly ±2.9 wide; `sector_rotation`'s 0.22 is indistinguishable from 0 (PSR 0.56, close to a coin flip).
-2. **The apparent edge over the benchmark is not significant either.** `momentum`, `sector_rotation`, `dual_momentum`, `risk_budget` and `ensemble` show annualised excess point estimates of +16% to +21%, but the intervals range from [−17%, +50%] at the narrowest to [−56%, +90%] at the widest, and all contain 0. The point estimate comes from the benchmark losing 7.87% in the holdout, not from repeatable selection skill.
-3. **It is weaker still after multiple-comparison correction.** No strategy has a DSR above 0.38; even the best Sharpe is below the expected maximum of 8 unskilled strategies (0.67).
-4. **The rolling folds agree.** The 4 verifiable strategies were positive in 3, 3, 3 and 1 of 8 folds; one-sided sign-test p-values are 0.86, 0.86, 0.86 and 1.00.
-5. **Not sensitive to block length.** Mean block lengths of 5, 10 and 20 sessions give the same conclusion.
-
-These intervals describe sampling uncertainty within a holdout that has already been viewed, not a prediction interval for unseen data; the sample contains a single market episode and a bootstrap cannot generate regimes that never occurred in it.
+1. **Every Sharpe interval straddles zero.** With 126 sessions the 95% interval is about ±2.9; `sector_rotation`'s 0.22 is indistinguishable from 0 (PSR 0.56).
+2. **Excess over the benchmark is not significant.** Five strategies show annualised excess of +16% to +21%, with intervals from [−17%, +50%] to [−56%, +90%], all containing 0; the point estimates mostly reflect the benchmark's own 7.87% loss.
+3. **Weaker after multiple-comparison correction.** The best DSR is 0.38; the best Sharpe, 0.22, is below the 0.67 expected maximum of 8 unskilled strategies.
+4. **The rolling folds agree.** The 4 verifiable strategies are positive in 3, 3, 3 and 1 of 8 folds; one-sided sign test p ≥ 0.86.
 
 ## Forward paper record
 
-The system is designed to send the `sector_rotation` research signal to Telegram at 14:20 on every A-share trading day, explicitly labelled as research mode and not an approved model. Because the holdout has been viewed, this live record is the genuine forward sample for any future promotion decision.
+At 14:20 on every A-share trading day the system sends the `sector_rotation` research signal to Telegram, as the forward sample for any future promotion decision.
 
-**Status (as of 2026-11-10): the forward record has not started accumulating.** GitHub's native cron ran 5–10 hours late on this repository, with the delay varying day to day; across the 17 trading days from 10-19 to 11-10, no production signal was delivered inside the 14:20–14:55 window. By design the system refuses to send a stale signal (fail-closed) and only raised "not delivered" alerts. Since 11-11 the cron is fanned out every 20 minutes over the 14 hours before the window, and missed-signal alerts are deduplicated to one per day; the fix has not yet been validated live.
-
-Design choices in the delivery path: the slow collection and evaluation finish before 14:20; report generation and sending are gated to 14:20–14:55 and late runs never send; a persisted reservation precedes every send to prevent duplicates; run status is written to logs and the step summary; an independent dead-man check and an external scheduler trigger are supported (configuration for the latter is provided but not yet deployed). See [scheduling](docs/scheduling.md) and [operations](docs/OPERATIONS.md) (Chinese).
+**No record yet as of 2026-11-10.** GitHub's native cron ran 5–10 hours late on this repository, and no signal landed in the 14:20–14:55 window across the 17 trading days from 10-19 to 11-10; the system does not send stale signals. Since 11-11 the cron fires every 20 minutes over the 14 hours before the window; not yet validated. Design in [scheduling](docs/scheduling.md) (Chinese).
 
 ## Engineering
 
-- `src/fullgoal_quant/` separates data, universe, signals, ledger, portfolio, report and notifications; every research run writes a manifest with config hash, source hash and time windows.
-- 129 regression tests cover timing and look-ahead, fees and settlement, missing data and quality breaks, statistical inference, accounts, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test against live public data.
-- Public logs and artifacts contain no account report, outbox or tokens.
-
-**Pipeline**
+- Every research run writes a manifest: config hash, source hash, time windows.
+- 129 regression tests cover look-ahead, fees and settlement, data breaks, statistical inference, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test on live data.
+- A reservation is persisted before each send, so the same signal is never sent twice.
 
 ```mermaid
 flowchart LR
@@ -223,6 +219,9 @@ flowchart LR
   G --> H["Rolling validation and holdout"] --> I["Inference<br/>bootstrap · PSR · DSR"] --> J["Deployment gate"]
   F -.-> K["Daily research signal<br/>Telegram 14:20"]
 ```
+
+<details>
+<summary><b>Modules</b></summary>
 
 ```text
 src/fullgoal_quant/
@@ -238,19 +237,21 @@ src/fullgoal_quant/
   notifications.py / runstatus.py   send reservation, dedup and run status
 ```
 
+</details>
+
 ## Limitations
 
-- **Survivorship bias**: no complete catalog of delisted funds; the universe contains surviving funds only.
-- **Data timing**: vendor NAVs are revised after the fact; T−2 mitigates publication delay but does not prove point-in-time availability. Historical trading days are proxied by domestic equity NAV dates.
-- **Cost assumptions**: fees, confirmation/settlement days and purchase limits are research defaults, not verified per fund; slippage is set to 0.
-- **Short holdout**: the 126-day holdout is dominated by one episode and has little statistical power.
+- **Survivorship bias**: the universe holds surviving funds only, no delisted ones.
+- **Data timing**: NAVs are the vendor's revised series; the T−2 lag is only a proxy for publication delay.
+- **Costs**: fees, confirmation/settlement days and purchase limits are uniform assumptions, not verified per fund; slippage is 0.
+- **Sample**: the holdout is 126 sessions and contains a single episode.
 
 ## Next steps
 
-- **Validation**: replace the viewed holdout with the forward record; once it accumulates, redo the bootstrap intervals and deflated Sharpe on it; per-fold excess intervals first require a benchmark that does not span a NAV break.
-- **Data**: point-in-time universe with delisted funds; NAV publication timestamps to replace the T−2 proxy.
-- **Signal**: decompose sector selection vs fund selection; equal vs size-weighted sector aggregation; robustness to momentum windows.
-- **Costs**: net cost of daily vs weekly rebalancing; calibrate fees against real platform statements.
+- **Validation**: redo the bootstrap intervals and DSR on the forward record; compute per-fold excess intervals once the benchmark's NAV break is fixed.
+- **Data**: point-in-time universe with delisted funds; NAV publication timestamps.
+- **Signal**: decompose sector selection vs fund selection; robustness to momentum windows.
+- **Costs**: net cost of daily vs weekly rebalancing; calibrate fees against platform statements.
 
 ## Reproduce
 
@@ -266,12 +267,8 @@ pip install matplotlib && python scripts/plot_holdout.py sample_results/2026-10-
 python scripts/plot_intervals.py sample_results/2026-10-16 docs/figures
 ```
 
-`data/` is not under version control. On the same snapshot (see [`provenance.json`](sample_results/2026-10-16/provenance.json)) the table reproduces bit for bit; re-collecting yields different numbers because of vendor NAV revisions and universe changes.
+`data/` is not versioned. On the same snapshot ([`provenance.json`](sample_results/2026-10-16/provenance.json)) results match bit for bit; re-collecting gives different numbers because of NAV revisions and universe changes.
 
-## Documents
+---
 
-[Methodology](docs/METHODOLOGY.md) · [Operations](docs/OPERATIONS.md) · [Scheduling](docs/scheduling.md) · [Deployment](docs/DEPLOYMENT.md) · [Review](docs/REVIEW.md) (Chinese)
-
-## Disclaimer
-
-Personal research and competition-support project; not investment advice. The system only produces analysis and never places orders; all trades are made by the author on the competition platform.
+<sub>[Methodology](docs/METHODOLOGY.md) · [Operations](docs/OPERATIONS.md) · [Scheduling](docs/scheduling.md) · [Deployment](docs/DEPLOYMENT.md) · [Review](docs/REVIEW.md) (Chinese)　|　Personal research project; not investment advice.</sub>
