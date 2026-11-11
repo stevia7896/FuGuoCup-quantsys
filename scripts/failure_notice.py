@@ -26,8 +26,8 @@ def notice():
         detail=result.get('detail','')
     except (OSError, ValueError, KeyError, TypeError):
         status,detail='failed','运行状态缺失'
-    if status == 'skipped_stale_trigger':
-        print('过期调度事件，不发送失败通知。')
+    if status in ('skipped_stale_trigger','skipped_missed_notified'):
+        print('过期调度事件或今日漏发已告警，不重复发送失败通知。')
         return 0
     prefix='今日14:20信号未送达' if production() else '手动报告任务失败'
     unresolved='消息可能已部分送达，请人工核对 Telegram，勿重复操作。' if status in ('blocked_unresolved','send_failed') else ''

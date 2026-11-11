@@ -186,7 +186,7 @@ class ScheduledDeliveryTests(unittest.TestCase):
 
     def test_missing_outbox_status_rules(self):
         self.assertEqual(self.sender.send(),1)
-        for status in ('preview','skipped_non_session','skipped_already_sent','skipped_stale_trigger'):
+        for status in ('preview','skipped_non_session','skipped_already_sent','skipped_stale_trigger','skipped_missed_notified'):
             runstatus.record(status)
             self.assertEqual(self.sender.send(),0)
         for status in ('scheduled','reserved','failed','missed_late','blocked_unresolved'):
@@ -241,15 +241,52 @@ class ScheduledDeliveryTests(unittest.TestCase):
     def test_utc_slot_and_workflow_crons(self):
         self.assertTrue(cli.slot_guard('afternoon',datetime(2026,10,21,6,20,tzinfo=timezone.utc)))
         self.assertFalse(cli.slot_guard('afternoon',datetime(2026,10,21,5,50,tzinfo=timezone.utc)))
-        crons=re.findall(r"cron:\s*'([^']+)'",(ROOT/'.github/workflows/reports.yml').read_text())
-        self.assertEqual(set(crons),{'50 5 * * 1-5','20 6 * * 1-5'})
+        workflow=(ROOT/'.github/workflows/reports.yml').read_text()
+        crons=re.findall(r"cron:\s*'([^']+)'",workflow)
+        self.assertEqual(set(crons),set(cli.FANOUT_CRONS))
+        fires=set()
         for cron in crons:
             minute,hour,_,_,weekday=cron.split()
             self.assertEqual(cli.CRONS[cron],'afternoon')
-            self.assertEqual(weekday,'1-5')
-            for day in range(19,26):
-                at=datetime(2026,10,day,int(hour),int(minute),tzinfo=timezone.utc)
-                self.assertEqual(at.weekday(),at.astimezone(TZ).weekday())
+            minutes=range(0,60,20) if minute=='*/20' else [int(m) for m in minute.split(',')]
+            first,_,last=hour.partition('-')
+            hours=range(int(first),int(last or first)+1)
+            # Evening UTC crons belong to the next Beijing weekday.
+            self.assertEqual(weekday,'0-4' if hours[0]>=16 else '1-5')
+            for h in hours:
+                for m in minutes:
+                    at=datetime(2026,10,18 if hours[0]>=16 else 19,h,m,tzinfo=timezone.utc)
+                    self.assertEqual(at.astimezone(TZ).date().isoformat(),'2026-10-19')
+                    fires.add(at)
+        # Any constant delay up to 14 hours leaves a run inside the 13:40-14:55 launch window.
+        start=datetime(2026,10,19,13,40,tzinfo=TZ)
+        for delay in range(0,14*60+1):
+            self.assertTrue(any(timedelta(0)<=at+timedelta(minutes=delay)-start<=timedelta(minutes=75) for at in fires),delay)
+        self.assertIn("needs.gate.outputs.run == 'true'",workflow)
+
+    def test_repeated_late_events_alert_once_per_day(self):
+        notice=module('failure_notice')
+        heartbeat=module('heartbeat')
+        self.at=self.at.replace(hour=21,minute=17)
+        self.assertEqual(self.runner.run(),3)
+        self.assertEqual(self.status(),'missed_late')
+        self.assertEqual(self.sender.send(),1)
+        self.at=self.at.replace(hour=22,minute=0)
+        os.environ.update(GITHUB_RUN_ID='101',HEALTHCHECK_PING_URL='https://example.invalid/check',FQ_JOB_STATUS='success')
+        self.assertEqual(self.runner.run(),0)
+        self.assertEqual(self.status(),'skipped_missed_notified')
+        self.assertEqual(self.sender.send(),0)
+        with patch.object(notice,'send_report') as alert,patch.object(heartbeat.urllib.request,'urlopen') as fetch:
+            self.assertEqual(notice.notice(),0)
+            alert.assert_not_called()
+            self.assertEqual(heartbeat.heartbeat(),0)
+            self.assertTrue(fetch.call_args.args[0].endswith('/fail'))
+        # A new trading day alerts again.
+        self.at=self.at.replace(day=22,hour=21,minute=0)
+        self.assertEqual(self.runner.run(),3)
+        self.assertEqual(self.status(),'missed_late')
+        self.collect.assert_not_called()
+        self.telegram.assert_not_called()
 
     def test_failure_notice_includes_status_without_account_amount(self):
         notice=module('failure_notice')

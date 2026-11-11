@@ -64,3 +64,13 @@ def fail(report_id, reason, path='runtime/notification-state.json'):
     state['deliveries'][report_id].update(status='send_failed',
                                         reason=reason if reason in ('http','network','other') else 'other')
     save_state(path,state)
+
+
+def note_missed(day, path='runtime/notification-state.json'):
+    """Record today's missed-signal alert; False when it was already raised."""
+    state=state_at(path)
+    if state.get('missed_alert')==day:
+        return False
+    state['missed_alert']=day
+    save_state(path,state)
+    return True

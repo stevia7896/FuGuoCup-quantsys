@@ -18,11 +18,17 @@ from .report import build_report, save_report
 from .telegram import api, chat_ids, send_report
 from .research import evaluate
 from .universe import active_codes, analysis_codes, metadata_for
-from .notifications import reserve, state_at, complete, delivery_status
+from .notifications import reserve, state_at, complete, delivery_status, note_missed
 from .runstatus import production, record
 
 SLOTS = {"morning": time(8, 30), "afternoon": time(14, 20), "evening": time(20, 30)}
-CRONS = {"30 0 * * 1-5": "morning", "50 5 * * 1-5": "afternoon", "20 6 * * 1-5": "afternoon", "30 12 * * 1-5": "evening"}
+# GitHub delays this repository's schedule events by 5-10 hours, so the afternoon
+# slot is fanned out every 20 minutes across the preceding 14 hours (UTC 16:00 of
+# the previous day to 06:20). Whichever event lands in 13:40-14:55 Beijing time
+# delivers; earlier ones are skipped as stale and later ones are deduplicated.
+FANOUT_CRONS = ("*/20 16-23 * * 0-4", "*/20 0-5 * * 1-5", "0,20 6 * * 1-5")
+CRONS = {"30 0 * * 1-5": "morning", "50 5 * * 1-5": "afternoon", "20 6 * * 1-5": "afternoon", "30 12 * * 1-5": "evening",
+         **{cron: "afternoon" for cron in FANOUT_CRONS}}
 
 
 def slot_guard(slot, at=None):
@@ -226,7 +232,12 @@ def main(argv=None):
                     return 2
                 if minutes > (35 if slot == 'afternoon' else 45):
                     if scheduled:
-                        record('missed_late',slot=slot,detail=f'延迟 {minutes:.0f} 分钟')
+                        detail=f'延迟 {minutes:.0f} 分钟'
+                        # One missed-signal alert per day; later delayed events stay quiet.
+                        if not note_missed(str(at.date())):
+                            record('skipped_missed_notified',slot=slot,detail=detail+'；今日漏发已告警，不重复通知')
+                            return 0
+                        record('missed_late',slot=slot,detail=detail)
                         return 3
                     print('工作流延迟超出有效时段，跳过过时报告；请在 Actions 查看延迟')
                     return 0

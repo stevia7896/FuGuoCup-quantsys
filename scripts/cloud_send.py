@@ -16,7 +16,7 @@ def send():
             status=read_json('runtime/run-status.json').get('status')
         except (OSError, ValueError, TypeError):
             status=None
-        if status in ('skipped_non_session','skipped_already_sent','skipped_stale_trigger','preview'):
+        if status in ('skipped_non_session','skipped_already_sent','skipped_stale_trigger','skipped_missed_notified','preview'):
             return 0
         print(f'未生成发送预约（status={status}）')
         return 1
