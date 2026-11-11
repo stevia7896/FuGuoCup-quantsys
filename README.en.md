@@ -13,7 +13,7 @@ Personal research project · Python · pandas · NumPy · [中文](README.md)
 | Question | Can cross-sectional sector momentum with a trend filter produce a stable risk-adjusted return in Fullgoal OTC funds after subscription/redemption fees, T+1 confirmation, T+3 settlement and purchase limits? |
 | Sample | 2021-01-04 → 2026-10-16; 500 tradeable funds in the backtest (from 917 catalog codes) |
 | Validation | Fixed parameters, no search; 252-day initial train → 8 × 126-day rolling folds → 126-day holdout |
-| Conclusion | Sector momentum is not a stable alpha here. Rolling and holdout signs disagree for most strategies; momentum-type strategies pay fees of 2.7%–3.5% of initial capital in the holdout |
+| Conclusion | Sector momentum is not a stable alpha here. Every holdout Sharpe has a 95% bootstrap interval that straddles zero, and no deflated Sharpe exceeds 0.38. Rolling and holdout signs disagree for most strategies; momentum-type strategies pay fees of 2.7%–3.5% of initial capital in the holdout |
 | Status | Research mode. No strategy passes the deployment gate; the live signal is a forward paper record only |
 
 All numbers come from [`sample_results/2026-10-16/`](sample_results/2026-10-16/) (`model_hash ad4a7a6`, `config_hash 0b02a25`, snapshot `sha256 191bb947`). Re-running on the same snapshot reproduces them bit for bit.
@@ -126,6 +126,35 @@ Initial capital ¥200,000; all figures net of fees. "Not verifiable": the strate
 4. **The formal gate cannot be computed — by design.** The `equal_weight` benchmark itself crosses a NAV break, so the per-fold excess test is undefined and the system refuses to promote any strategy rather than manufacturing a result from spliced returns.
 5. **Results are sensitive to universe composition.** An earlier version with a different universe and code ([`sample_results/review/`](sample_results/review/)) had `sector_rotation` at −2.47% rolling and +1.20% holdout; numbers drift as the universe changes, which is why every result here is pinned to hashes.
 
+### Statistical inference
+
+Beyond point estimates, how much confidence do these numbers deserve? The table below is computed on the frozen holdout daily returns without re-running any backtest, so it cannot change which model is retained ([`robustness.md`](sample_results/2026-10-16/robustness.md), fixed seed, reproducible with `python scripts/robustness.py`).
+
+| Strategy | Sharpe | Sharpe 95% CI | Annualised excess | Excess 95% CI | PSR | DSR |
+|---|---:|---:|---:|---:|---:|---:|
+| `equal_weight` | −0.89 | [−3.06, 1.35] | — | — | 0.26 | 0.13 |
+| `momentum` | 0.17 | [−2.44, 3.02] | +20.7% | [−55.7%, +90.0%] | 0.55 | 0.36 |
+| `relative_strength` | −0.56 | [−3.36, 2.66] | +2.7% | [−56.2%, +58.4%] | 0.35 | 0.19 |
+| **`sector_rotation`** | 0.22 | [−2.67, 3.15] | +19.8% | [−30.7%, +66.7%] | 0.56 | 0.38 |
+| `timing` | −0.71 | [−3.48, 2.61] | +0.6% | [−58.2%, +52.4%] | 0.31 | 0.16 |
+| `dual_momentum` | 0.16 | [−2.66, 3.15] | +19.7% | [−55.7%, +83.8%] | 0.54 | 0.36 |
+| `risk_budget` | 0.08 | [−2.77, 2.90] | +15.9% | [−17.3%, +49.5%] | 0.52 | 0.34 |
+| `ensemble` | 0.12 | [−2.70, 3.04] | +17.9% | [−41.1%, +70.1%] | 0.53 | 0.35 |
+
+- **Intervals**: stationary bootstrap (Politis–Romano), 10,000 resamples, mean block length of 10 sessions to preserve serial dependence; excess is measured against `equal_weight`, with strategy and benchmark resampled using the same indices (paired) so their correlation is kept.
+- **PSR**: probability that the true Sharpe exceeds 0, adjusted for sample length, skewness and kurtosis (Bailey & López de Prado, 2012).
+- **DSR**: raises the hurdle from 0 to the expected maximum Sharpe among 8 unskilled strategies (0.67) to correct for multiple comparisons (Bailey & López de Prado, 2014). The 8 strategies' daily returns are highly correlated, giving only 2.0 effective trials by mean pairwise correlation; using 8 is the conservative choice.
+
+**Reading**
+
+1. **Every Sharpe interval straddles zero by a wide margin.** With 126 sessions the 95% interval is roughly ±2.9 wide; `sector_rotation`'s 0.22 is indistinguishable from 0 (PSR 0.56, close to a coin flip).
+2. **The apparent edge over the benchmark is not significant either.** `momentum`, `sector_rotation`, `dual_momentum`, `risk_budget` and `ensemble` show annualised excess point estimates of +16% to +21%, but the intervals range from [−17%, +50%] at the narrowest to [−56%, +90%] at the widest, and all contain 0. The point estimate comes from the benchmark losing 7.87% in the holdout, not from repeatable selection skill.
+3. **It is weaker still after multiple-comparison correction.** No strategy has a DSR above 0.38; even the best Sharpe is below the expected maximum of 8 unskilled strategies (0.67).
+4. **The rolling folds agree.** The 4 verifiable strategies were positive in 3, 3, 3 and 1 of 8 folds; one-sided sign-test p-values are 0.86, 0.86, 0.86 and 1.00.
+5. **Not sensitive to block length.** Mean block lengths of 5, 10 and 20 sessions give the same conclusion.
+
+These intervals describe sampling uncertainty within a holdout that has already been viewed, not a prediction interval for unseen data; the sample contains a single market episode and a bootstrap cannot generate regimes that never occurred in it.
+
 ## Forward paper record
 
 The system is designed to send the `sector_rotation` research signal to Telegram at 14:20 on every A-share trading day, explicitly labelled as research mode and not an approved model. Because the holdout has been viewed, this live record is the genuine forward sample for any future promotion decision.
@@ -137,7 +166,7 @@ Design choices in the delivery path: the slow collection and evaluation finish b
 ## Engineering
 
 - `src/fullgoal_quant/` separates data, universe, signals, ledger, portfolio, report and notifications; every research run writes a manifest with config hash, source hash and time windows.
-- 120 regression tests cover timing and look-ahead, fees and settlement, missing data and quality breaks, accounts, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test against live public data.
+- 129 regression tests cover timing and look-ahead, fees and settlement, missing data and quality breaks, statistical inference, accounts, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test against live public data.
 - Public logs and artifacts contain no account report, outbox or tokens.
 
 ```text
@@ -147,6 +176,7 @@ src/fullgoal_quant/
   signals.py     features, strategies and portfolio constraints
   backtest.py    event-driven ledger: fees, confirmation, settlement
   research.py    fixed-plan rolling validation and manifest
+  inference.py   stationary bootstrap, PSR / DSR, sign test
   portfolio.py   real account and rebalance proposal
   report.py      report and daily signal text
   calendar.py    official trading calendar
@@ -162,7 +192,7 @@ src/fullgoal_quant/
 
 ## Next steps
 
-- **Validation**: replace the viewed holdout with the forward record; block-bootstrap confidence intervals for per-fold excess; multiple-comparison correction (e.g. deflated Sharpe).
+- **Validation**: replace the viewed holdout with the forward record; once it accumulates, redo the bootstrap intervals and deflated Sharpe on it; per-fold excess intervals first require a benchmark that does not span a NAV break.
 - **Data**: point-in-time universe with delisted funds; NAV publication timestamps to replace the T−2 proxy.
 - **Signal**: decompose sector selection vs fund selection; equal vs size-weighted sector aggregation; robustness to momentum windows.
 - **Costs**: net cost of daily vs weekly rebalancing; calibrate fees against real platform statements.
@@ -176,6 +206,7 @@ python -m unittest discover -s tests -b
 
 fq collect                  # collect public data (data/ is not versioned)
 fq research --out reports/research
+python scripts/robustness.py sample_results/2026-10-16   # statistical inference, fixed seed
 pip install matplotlib && python scripts/plot_holdout.py sample_results/2026-10-16 docs/figures
 ```
 
