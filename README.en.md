@@ -1,10 +1,33 @@
-# FuGuoCup Quant
+<div align="center">
 
-**Sector momentum in Fullgoal OTC funds: an out-of-sample test net of subscription/redemption costs and settlement lags**
+<h1>FuGuoCup Quant</h1>
 
-Personal research project · Python · pandas · NumPy · [中文](README.md)
+<p><b>Sector momentum in Fullgoal OTC funds: an out-of-sample test net of subscription/redemption costs and settlement lags</b></p>
 
-> None of the 9 pre-specified strategies shows a stable out-of-sample edge after fees. `sector_rotation`, which drives the live signal, is positive in only 3 of 8 rolling folds and returns +1.23% in the holdout — after first rising to +26.2% and then drawing down 20.3%. Costs are the same order of magnitude as returns. The more durable output is the research infrastructure: point-in-time data-quality isolation, an explicit subscription/redemption ledger, and results reproducible by hash.
+<p>
+  <a href="https://github.com/stevia7896/FuGuoCup-quantsys/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/stevia7896/FuGuoCup-quantsys/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <img alt="Python 3.11 | 3.12 | 3.13" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776ab">
+  <img alt="129 regression tests" src="https://img.shields.io/badge/regression%20tests-129-2a78d6">
+  <img alt="dependencies: numpy, pandas" src="https://img.shields.io/badge/deps-numpy%20%C2%B7%20pandas-52514e">
+  <img alt="status: research mode" src="https://img.shields.io/badge/status-research%20mode-898781">
+</p>
+
+<p>Personal research project · <a href="README.md">中文</a></p>
+
+<p><a href="#summary">Summary</a> · <a href="#method">Method</a> · <a href="#validation-design">Validation</a> · <a href="#results">Results</a> · <a href="#statistical-inference">Inference</a> · <a href="#engineering">Engineering</a> · <a href="#reproduce">Reproduce</a></p>
+
+</div>
+
+> [!NOTE]
+> **Bottom line:** None of the 9 pre-specified strategies shows a stable out-of-sample edge after fees. `sector_rotation`, which drives the live signal, is positive in only 3 of 8 rolling folds and returns +1.23% in the holdout — after first rising to +26.2% and then drawing down 20.3%. Costs are the same order of magnitude as returns. The more durable output is the research infrastructure: point-in-time data-quality isolation, an explicit subscription/redemption ledger, and results reproducible by hash.
+
+<div align="center">
+
+| Pre-specified strategies | Tradeable funds | Out-of-sample periods | Passed deployment gate | Best DSR |
+|:---:|:---:|:---:|:---:|:---:|
+| **9** | **500** | **8 rolling + 1 holdout** | **0** | **0.38** |
+
+</div>
 
 ## Summary
 
@@ -17,6 +40,13 @@ Personal research project · Python · pandas · NumPy · [中文](README.md)
 | Status | Research mode. No strategy passes the deployment gate; the live signal is a forward paper record only |
 
 All numbers come from [`sample_results/2026-10-16/`](sample_results/2026-10-16/) (`model_hash ad4a7a6`, `config_hash 0b02a25`, snapshot `sha256 191bb947`). Re-running on the same snapshot reproduces them bit for bit.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/intervals-dark.png">
+  <img alt="Holdout Sharpe ratios with 95% stationary-bootstrap intervals: all 8 strategies contain zero" src="docs/figures/intervals-light.png">
+</picture>
+
+<sub>Holdout Sharpe ratio per strategy with its 95% bootstrap interval; the dashed line is the expected maximum Sharpe among 8 unskilled strategies. Method in <a href="#statistical-inference">Statistical inference</a>.</sub>
 
 ## Hypotheses
 
@@ -45,6 +75,9 @@ All numbers come from [`sample_results/2026-10-16/`](sample_results/2026-10-16/)
 
 All features use only NAVs completed on or before the signal date (signal lag T−2).
 
+<details>
+<summary><b>Feature definitions (10)</b></summary>
+
 | Feature | Definition |
 |---|---|
 | `mom20/60/126` | `P_t / P_{t−n} − 1` |
@@ -55,9 +88,14 @@ All features use only NAVs completed on or before the signal date (signal lag T�
 | `multi_momentum` | 0.25·`mom20` + 0.35·`mom60` + 0.40·`mom126` |
 | `score` | 30% rank(`mom20`) + 30% rank(`mom60`) + 20% rank(`risk_adjusted`) + 20% rank(−`vol60`) |
 
+</details>
+
 ### Strategies
 
 Every strategy except `equal_weight` drops funds with `drawdown60 ≤ −20%` and holds at most 3 funds. "Breadth scaling" classifies the market by the share of equity funds with `trend>0 and mom60>0`: risk_on (≥60%), mixed (≥35%), risk_off; total exposure is multiplied by 1.0, 0.75 and 0.5 respectively.
+
+<details>
+<summary><b>Rules for the 9 strategies</b></summary>
 
 | Strategy | Rule |
 |---|---|
@@ -71,11 +109,16 @@ Every strategy except `equal_weight` drops funds with `drawdown60 ≤ −20%` an
 | `risk_budget` | `dual_momentum` candidates + 60-day correlation screen (<0.85) + inverse-vol weights, 12% annual vol target |
 | `ensemble` | Average of the `momentum`, `dual_momentum` and `risk_budget` weights |
 
+</details>
+
 **Portfolio constraints**: single fund ≤35%, single sector ≤50%, total exposure ≤95%, enforced in the weight projection rather than clipped afterwards.
 
 ### Execution and costs
 
 A purpose-built event-driven ledger tracks cash, per-lot units, receivables and in-flight orders daily; no third-party backtester, no leverage.
+
+<details>
+<summary><b>Execution and cost assumptions</b></summary>
 
 | Item | Assumption |
 |---|---|
@@ -84,6 +127,8 @@ A purpose-built event-driven ledger tracks cash, per-lot units, receivables and 
 | Redemption fee | FIFO by lot age: <7 days 1.5%, <365 days 0.5%; no redemption before 7 days |
 | Rebalance | First trading day of each week |
 | Missing data | Missing NAVs, trades without NAV and quality breaks are recorded as errors per segment; never filled with zero or spliced returns |
+
+</details>
 
 Fees are research assumptions, not verified per-fund rates; competition mode requires per-fund rates with sources.
 
@@ -169,6 +214,16 @@ Design choices in the delivery path: the slow collection and evaluation finish b
 - 129 regression tests cover timing and look-ahead, fees and settlement, missing data and quality breaks, statistical inference, accounts, notification dedup and scheduling states; CI runs Python 3.11 / 3.12 / 3.13 plus a smoke test against live public data.
 - Public logs and artifacts contain no account report, outbox or tokens.
 
+**Pipeline**
+
+```mermaid
+flowchart LR
+  A["Public NAV collection"] --> B["SHA-256 archive"] --> C["Quality-break isolation"] --> D["OTC classification, share-class dedup"]
+  D --> E["Features (lag T−2)"] --> F["Strategy weights and constraints"] --> G["Event-driven ledger<br/>fees · T+1 confirm · T+3 cash"]
+  G --> H["Rolling validation and holdout"] --> I["Inference<br/>bootstrap · PSR · DSR"] --> J["Deployment gate"]
+  F -.-> K["Daily research signal<br/>Telegram 14:20"]
+```
+
 ```text
 src/fullgoal_quant/
   data.py        collection, parsing, archiving and SHA-256
@@ -208,6 +263,7 @@ fq collect                  # collect public data (data/ is not versioned)
 fq research --out reports/research
 python scripts/robustness.py sample_results/2026-10-16   # statistical inference, fixed seed
 pip install matplotlib && python scripts/plot_holdout.py sample_results/2026-10-16 docs/figures
+python scripts/plot_intervals.py sample_results/2026-10-16 docs/figures
 ```
 
 `data/` is not under version control. On the same snapshot (see [`provenance.json`](sample_results/2026-10-16/provenance.json)) the table reproduces bit for bit; re-collecting yields different numbers because of vendor NAV revisions and universe changes.
