@@ -1,10 +1,33 @@
-# FuGuoCup Quant
+<div align="center">
 
-**富国场外基金的行业动量：扣除申赎成本与结算时滞后的样本外检验**
+<h1>FuGuoCup Quant</h1>
 
-个人研究项目｜Python · pandas · NumPy｜[English](README.en.md)
+<p><b>富国场外基金的行业动量：扣除申赎成本与结算时滞后的样本外检验</b></p>
 
-> 9 个预先设定的策略中，没有一个在扣费后表现出稳定的样本外优势。实时信号所用的 `sector_rotation` 在 8 个滚动窗口中只有 3 个为正，最终测试 +1.23%，但测试期内曾先涨到 +26.2%，随后回撤 20.3%。成本与收益同一量级。本项目更可靠的产出是研究基础设施：逐时点的数据质量隔离、显式申赎账本，以及可按哈希复现的结果。
+<p>
+  <a href="https://github.com/stevia7896/FuGuoCup-quantsys/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/stevia7896/FuGuoCup-quantsys/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <img alt="Python 3.11 | 3.12 | 3.13" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776ab">
+  <img alt="129 regression tests" src="https://img.shields.io/badge/regression%20tests-129-2a78d6">
+  <img alt="dependencies: numpy, pandas" src="https://img.shields.io/badge/deps-numpy%20%C2%B7%20pandas-52514e">
+  <img alt="status: research mode" src="https://img.shields.io/badge/status-research%20mode-898781">
+</p>
+
+<p>个人研究项目 · <a href="README.en.md">English</a></p>
+
+<p><a href="#摘要">摘要</a> · <a href="#方法">方法</a> · <a href="#验证设计">验证设计</a> · <a href="#结果">结果</a> · <a href="#统计推断">统计推断</a> · <a href="#工程实现">工程实现</a> · <a href="#复现">复现</a></p>
+
+</div>
+
+> [!NOTE]
+> **核心结论：** 9 个预先设定的策略中，没有一个在扣费后表现出稳定的样本外优势。实时信号所用的 `sector_rotation` 在 8 个滚动窗口中只有 3 个为正，最终测试 +1.23%，但测试期内曾先涨到 +26.2%，随后回撤 20.3%。成本与收益同一量级。本项目更可靠的产出是研究基础设施：逐时点的数据质量隔离、显式申赎账本，以及可按哈希复现的结果。
+
+<div align="center">
+
+| 预设策略 | 回测可买入基金 | 样本外窗口 | 通过部署门槛 | 最高 DSR |
+|:---:|:---:|:---:|:---:|:---:|
+| **9** | **500** | **8 滚动 + 1 测试** | **0** | **0.38** |
+
+</div>
 
 ## 摘要
 
@@ -17,6 +40,13 @@
 | 状态 | 研究模式。无策略通过部署门槛；实时信号仅作前瞻纸面记录 |
 
 结果均来自 [`sample_results/2026-10-16/`](sample_results/2026-10-16/)（`model_hash ad4a7a6`、`config_hash 0b02a25`、快照 `sha256 191bb947`）。同一快照重复运行，结果逐位一致。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/intervals-dark.png">
+  <img alt="测试期夏普比率及 95% 平稳自助法区间：8 个策略的区间全部包含 0" src="docs/figures/intervals-light.png">
+</picture>
+
+<sub>测试期各策略的夏普比率与 95% 自助法区间；虚线为 8 个无技能策略中最大夏普的期望。方法见<a href="#统计推断">统计推断</a>。</sub>
 
 ## 研究假设
 
@@ -45,6 +75,9 @@
 
 所有特征只使用信号日及之前已完成的净值（信号滞后 T−2）。
 
+<details>
+<summary><b>特征定义（10 个）</b></summary>
+
 | 特征 | 定义 |
 |---|---|
 | `mom20/60/126` | `P_t / P_{t−n} − 1` |
@@ -55,9 +88,14 @@
 | `multi_momentum` | 0.25·`mom20` + 0.35·`mom60` + 0.40·`mom126` |
 | `score` | 30% rank(`mom20`) + 30% rank(`mom60`) + 20% rank(`risk_adjusted`) + 20% rank(−`vol60`) |
 
+</details>
+
 ### 策略
 
 除 `equal_weight` 外，所有策略先剔除 `drawdown60 ≤ −20%` 的基金，至多持有 3 只。标注"广度缩放"的策略按权益基金中 `trend>0 且 mom60>0` 的占比判断市场状态：risk_on（≥60%）、mixed（≥35%）、risk_off，总仓位分别乘以 1.0、0.75、0.5。
+
+<details>
+<summary><b>9 个策略的规则</b></summary>
 
 | 策略 | 规则 |
 |---|---|
@@ -71,11 +109,16 @@
 | `risk_budget` | `dual_momentum` 的候选 + 60 日相关性 <0.85 筛选 + 逆波动加权，目标年化波动 12% |
 | `ensemble` | `momentum`、`dual_momentum`、`risk_budget` 三者权重的平均 |
 
+</details>
+
 **组合约束**：单基金 ≤35%、单行业 ≤50%、总仓位 ≤95%，在权重投影阶段执行，而非事后裁剪。
 
 ### 执行与成本
 
 自建事件驱动账本，逐日记录现金、逐批份额、应收款和在途申赎；不使用第三方回测框架，不加杠杆。
+
+<details>
+<summary><b>执行与成本假设</b></summary>
 
 | 项目 | 假设 |
 |---|---|
@@ -84,6 +127,8 @@
 | 赎回费 | 按 FIFO 批次和持有天数：<7 日 1.5%，<365 日 0.5%；未满 7 日不可赎回 |
 | 再平衡 | 每周首个交易日 |
 | 缺失数据 | 净值缺失、无净值成交、质量断点按段记为错误；不用 0 收益或拼接收益填充 |
+
+</details>
 
 费率为研究假设，并非逐只核验的真实费率；正式模式要求逐只填写并注明来源。
 
@@ -169,6 +214,16 @@
 - 129 个回归测试，覆盖时序与前视偏差、费用与结算、缺失数据与质量断点、统计推断、账户、通知去重与调度状态；CI 覆盖 Python 3.11 / 3.12 / 3.13，另有真实公开数据的 smoke test。
 - 公开日志与 artifact 不包含账户报告、outbox 或 token。
 
+**数据流**
+
+```mermaid
+flowchart LR
+  A["公开净值采集"] --> B["SHA-256 归档"] --> C["质量断点隔离"] --> D["场外分类与份额去重"]
+  D --> E["特征（滞后 T−2）"] --> F["策略权重与组合约束"] --> G["事件驱动账本<br/>费用 · T+1 确认 · T+3 到账"]
+  G --> H["滚动验证与测试"] --> I["统计推断<br/>自助法 · PSR · DSR"] --> J["部署门槛"]
+  F -.-> K["每日研究信号<br/>Telegram 14:20"]
+```
+
 ```text
 src/fullgoal_quant/
   data.py        采集、解析、归档与 SHA-256
@@ -208,6 +263,7 @@ fq collect                  # 采集公开数据（data/ 不入库）
 fq research --out reports/research
 python scripts/robustness.py sample_results/2026-10-16   # 统计推断，固定种子
 pip install matplotlib && python scripts/plot_holdout.py sample_results/2026-10-16 docs/figures
+python scripts/plot_intervals.py sample_results/2026-10-16 docs/figures
 ```
 
 `data/` 不纳入版本控制。在同一快照（见 [`provenance.json`](sample_results/2026-10-16/provenance.json)）上可逐位复现上表；重新采集会因供应商净值修订和基金池变化得到不同数字。
