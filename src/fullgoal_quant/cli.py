@@ -22,10 +22,12 @@ from .notifications import reserve, state_at, complete, delivery_status, note_mi
 from .runstatus import production, record
 
 SLOTS = {"morning": time(8, 30), "afternoon": time(14, 20), "evening": time(20, 30)}
-# GitHub delays this repository's schedule events by 5-10 hours, so the afternoon
-# slot is fanned out every 20 minutes across the preceding 14 hours (UTC 16:00 of
-# the previous day to 06:20). Whichever event lands in 13:40-14:55 Beijing time
-# delivers; earlier ones are skipped as stale and later ones are deduplicated.
+# GitHub delivers only a few of this repository's schedule events per day, hours
+# late, so the afternoon slot is fanned out every 20 minutes across the preceding
+# 14 hours (UTC 16:00 of the previous day to 06:20). The workflow gate holds an
+# event that starts 08:00-13:40 Beijing time until 13:40; whichever run reaches
+# the 13:40-14:55 window first delivers, earlier ones are skipped as stale and
+# later ones are deduplicated.
 FANOUT_CRONS = ("*/20 16-23 * * 0-4", "*/20 0-5 * * 1-5", "0,20 6 * * 1-5")
 CRONS = {"30 0 * * 1-5": "morning", "50 5 * * 1-5": "afternoon", "20 6 * * 1-5": "afternoon", "30 12 * * 1-5": "evening",
          **{cron: "afternoon" for cron in FANOUT_CRONS}}

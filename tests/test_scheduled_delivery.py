@@ -263,6 +263,15 @@ class ScheduledDeliveryTests(unittest.TestCase):
         for delay in range(0,14*60+1):
             self.assertTrue(any(timedelta(0)<=at+timedelta(minutes=delay)-start<=timedelta(minutes=75) for at in fires),delay)
         self.assertIn("needs.gate.outputs.run == 'true'",workflow)
+        # Early schedule events are held until 13:40 instead of being dropped, within the 6-hour job limit.
+        gate,report=workflow.split('\n  report:\n')
+        self.assertIn('-lt 800',gate)
+        self.assertIn("date -d 'today 13:40'",gate)
+        limit=int(re.search(r'timeout-minutes:\s*(\d+)',gate).group(1))
+        self.assertTrue((13*60+40)-8*60 < limit <= 360)
+        # Only the delivering job is serialised, so a held gate blocks nothing else.
+        self.assertNotIn('concurrency:',gate)
+        self.assertIn('group: fund-report-',report)
 
     def test_repeated_late_events_alert_once_per_day(self):
         notice=module('failure_notice')
