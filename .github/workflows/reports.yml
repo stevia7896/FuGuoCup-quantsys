@@ -1,9 +1,11 @@
 name: Trading day reports
 on:
   schedule:
-    # GitHub delivers this repository's schedule events 5-10 hours late, so fan
-    # out every 20 minutes over the 14 hours before the 14:20 (UTC 06:20) slot.
-    # Only an event that actually starts 13:40-14:55 Asia/Shanghai delivers.
+    # GitHub delivers only a handful of this repository's schedule events per
+    # day, hours late and at unpredictable times, so fan out every 20 minutes
+    # over the 14 hours before the 14:20 (UTC 06:20) slot. An event that starts
+    # 08:00-13:40 Asia/Shanghai is held in the gate job until 13:40; one that
+    # starts 13:40-14:55 delivers directly.
     - cron: '*/20 16-23 * * 0-4'
     - cron: '*/20 0-5 * * 1-5'
     - cron: '0,20 6 * * 1-5'
@@ -24,15 +26,14 @@ on:
 permissions:
   contents: read
   actions: read
-concurrency:
-  group: fund-report-${{ github.ref }}
-  cancel-in-progress: false
 jobs:
   gate:
-    # Cheap clock check: schedule events that start before today's 13:40
-    # Asia/Shanghai launch window are stale and exit without setup or alerts.
+    # Clock check for schedule events (Asia/Shanghai): before 08:00 they are
+    # stale and exit without setup or alerts; 08:00-13:40 they sleep here until
+    # the 13:40 launch window opens, so one early event is enough to deliver.
+    # The 08:00 floor keeps the hold under the 6-hour hosted-runner job limit.
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 350
     outputs:
       run: ${{ steps.clock.outputs.run }}
     steps:
@@ -40,16 +41,27 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          now=$(TZ=Asia/Shanghai date +%H%M)
-          if [ "$EVENT" = schedule ] && [ "$((10#$now))" -lt 1340 ]; then
+          export TZ=Asia/Shanghai
+          now=$(date +%H%M)
+          if [ "$EVENT" = schedule ] && [ "$((10#$now))" -lt 800 ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "- 早于今日 13:40 启动窗口（北京时间 $now），跳过过期调度事件" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "- 早于今日 08:00 等待下限（北京时间 $now），跳过过期调度事件" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          if [ "$EVENT" = schedule ] && [ "$((10#$now))" -lt 1340 ]; then
+            wait=$(( $(date -d 'today 13:40' +%s) - $(date +%s) ))
+            echo "- 北京时间 $now 启动，等待 ${wait} 秒至 13:40 启动窗口" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$wait" -gt 0 ]; then sleep "$wait"; fi
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
   report:
     needs: gate
     if: needs.gate.outputs.run == 'true'
+    # Serialise only the job with side effects, so a gate that is holding an
+    # early event does not block manual previews or the external dispatch.
+    concurrency:
+      group: fund-report-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
